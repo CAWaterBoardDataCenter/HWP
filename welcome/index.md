@@ -1,7 +1,8 @@
 ---
 title: "Healthy Watersheds Partnership (HWP)"
-subtitle: "Landscape Assessment Dashboard" 
+subtitle: Landscape Assessment Dashboard
 citation_url: https://cawaterboarddatacenter.github.io/HWP/
+slug: index
 ---
 
 
@@ -19,7 +20,7 @@ To achieve their goals, the HWP is in the process of developing a watershed asse
 ## The HWP Conceptial Model
 The HWP developed a conceptual model that represents the foundation of our systems approach and will be used to guide the data collection, management, and assessment process. It serves our need for a common framework to work from as we develop the assessment tool.
 
-[![Conceptual model being used for the HWP assessment and development of landscape assessment dashboard.](images/HWP_ConceptualModel_20200115.png){fig.alt="Conceptual model being used for the HWP assessment and development of landscape assessment dashboard."}]
+![Conceptual model being used for the HWP assessment and development of landscape assessment dashboard.](images/HWP_ConceptualModel_20200115.png){fig.alt="Conceptual model being used for the HWP assessment and development of landscape assessment dashboard."}
 
 
 This model represents one of many ways to conceptualize the dynamic and complex interactions of watershed drivers, controls, processes, structure, function and condition (adapted from Healthy Watersheds Integrated Assessments Workshop, USEPA and conceptual model for the Puget Sound ecosystem). Physical and biological features of aquatic ecosystems are controlled by a hierarchy of physical, chemical and biological processes operating across a wide range spatially and through time. These processes control how channel and habitat types are arranged or situated across the landscape (e.g. reach-scale channel types, pools and riffles at smaller scales). Biological features are also controlled by a hierarchy of processes, including community composition of riparian or aquatic species and location of suitable habitats for individual species ([Roni and Beechie 2012](https://onlinelibrary.wiley.com/doi/10.1002/9781118406618.ch1)).
