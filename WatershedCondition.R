@@ -2,7 +2,7 @@
 #################################
 ## Reading in Watershed Condition files for HWP re-assessment
 ## Started: 17 Aug 2021
-## Edited: 19 Aug 2021
+## Edited: 17 Oct 2021
 #################################
 #################################
 
@@ -11,19 +11,26 @@
 library(readr)
 library(tidyverse)
 library(nhdplusTools) ## requires download first using devtools::install_github("usgs-r/nhdplusTools")
+library(here)
+library(scales)
 
 
 ## read in files
+catch_ca <- readRDS(here("UpdatedData", "nhdplus_catchment_ca.rds"))
 NLCDcatch <- read_csv("./UpdatedData/NLCD2016_CA.csv") %>% ## Streamcat NLCD data
   select(COMID, CatAreaSqKm, PctOw2016Cat, PctIce2016Cat, PctBl2016Cat, PctDecid2016Cat, PctConif2016Cat, PctMxFst2016Cat, PctShrb2016Cat, PctGrs2016Cat, PctWdWet2016Cat, PctHbWet2016Cat, PctUrbOp2016Cat, PctUrbLo2016Cat, PctUrbMd2016Cat, PctUrbHi2016Cat, PctHay2016Cat, PctCrop2016Cat)
 COMIDs <- as.vector(NLCDcatch$COMID)
+Rfact <- read.table(here("UpdatedData" , "RF7100_CONUS.txt"), header = TRUE, sep = ",") %>% 
+  select(COMID, CAT_RF7100, NODATA) %>%
+  rename(CAT_RF_NODATA = NODATA) %>%
+  dplyr::filter(COMID %in% COMIDs) ## NHDPlusV2 R factor data
 Kffact <- read_csv("./UpdatedData/Kffact_CA.csv") %>% ## Streamcat Kffact data
   select(COMID, CatAreaSqKm, KffactCat)
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
   dplyr::select(COMID, RdCrsSlpWtdCat, RdCrsCat) %>%
   mutate(CatSlopePct = round((RdCrsSlpWtdCat/RdCrsCat)*100, 3)) ## calculate percent slope
 
-### test whether values are similar between Streamcat and NLCD datasets (some are not)
+## test whether values are similar between Streamcat and NLCD datasets (some are not)
 # NLCD2016test <- read_delim("./UpdatedData/NLCD16_CAT_CONUS.txt", delim = ",") %>%
 #   select(COMID, CAT_NLCD16_11, CAT_NLCD16_12, CAT_NLCD16_31, CAT_NLCD16_41, CAT_NLCD16_42, CAT_NLCD16_43, CAT_NLCD16_52, CAT_NLCD16_71, CAT_NLCD16_90, CAT_NLCD16_95) %>%
 # left_join(NLCDcatch, ., by = "COMID") %>%
@@ -46,13 +53,11 @@ str(NLCDcatch)
 
 
 ### Percent natural land cover
-NLCD.df <- NLCDcatch %>%
-  dplyr::select(COMID:PctHbWet2016Cat) %>%
-  rowwise(.) %>%
-  mutate(PctNatCover = round(sum(c_across(starts_with("Pct")), na.rm=TRUE),2)) %>%
-  dplyr::select(COMID, PctNatCover) %>%
-  data.frame(.)
-
+NLCD.df <- NLCDcatch[,c(1, 3:12)]
+NLCD.df$PctNatCover <- round(rowSums(NLCD.df[2:11]),2)
+NLCD.df <- select(NLCD.df, COMID, PctNatCover)
+NLCD.df$rank_PctNatCover <- rank(NLCD.df$PctNatCover)
+NLCD.df$nrank_PctNatCover <- (NLCD.df$rank_PctNatCover - 1)/ (max(NLCD.df$rank_PctNatCover) - 1)
 
 ### ARA -- need ArcGIS to complete
 
@@ -60,9 +65,13 @@ NLCD.df <- NLCDcatch %>%
 ### Sedimentation Risk
 
 ## looking for R factor: looks like was pre-calculated in the obs variables from 2013.
-data2013 <- read_csv("./CA_HWI_FinalData_101813/Deliverables/CAdata_obs.csv")
-colnames(data2013) ## has Kfact and sedrisk, but no Rfact?
+# data2013 <- read_csv("./CA_HWI_FinalData_101813/Deliverables/CAdata_obs.csv")
+# colnames(data2013) ## has Kfact and sedrisk, but no Rfact?
 # would like to bring in Rfactor from NHDPlusV2 data but given discrepancies I've found between the NHDPlusV2 and StreamCat datasets I'm wary.
+
+## R: CAT_RF7100 in Rfact
+sedrisk.R <- Rfact %>%
+  dplyr::select(COMID, CAT_RF7100)
 
 ## K: KffactCat in Streamcat
 sedrisk.K <- Kffact %>%
@@ -102,7 +111,21 @@ sedrisk.LS <- CatRdx %>%
   CatSlopePct = replace_na(CatSlopePct, 0),
   LS = round(1^m * ((65.41*(sin(CatSlopePct)^2))+(4.56*sin(CatSlopePct))+0.065),3))
 
-## create sed.risk df
+## create sedrisk.df
+sedrisk.df <- left_join(sedrisk.R, sedrisk.K, by = "COMID") %>%
+  left_join(., sedrisk.LS, by = "COMID") %>%
+  left_join(., sedrisk.C, by = "COMID")
+
+## calculate sedrisk & rank-normalize
+sedrisk.df$sedrisk <- sedrisk.df$CAT_RF7100*sedrisk.df$KffactCat*sedrisk.df$C_total*sedrisk.df$LS
+head(sedrisk.df)
+Sedrisk.df <- sedrisk.df %>%
+  dplyr::select(COMID, sedrisk) %>%
+  mutate(rank_sedrisk = rank(-sedrisk), # ranks in descending order; ranks can tie
+         nrank_sedrisk = (rank_sedrisk - 1)/ (max(rank_sedrisk) - 1),
+         sedrisk_round = round(sedrisk, 2), # testing whether rounding matters for ranking, answer is not really
+         rank_sedrisk_round = rank(-sedrisk_round),
+         nrank_sedrisk_round = (rank_sedrisk_round - 1)/ (max(rank_sedrisk_round) - 1)) # rescales ranks btwn 0 and 1
 
 ### Percent artificial drainage area
 
@@ -112,4 +135,67 @@ sedrisk.LS <- CatRdx %>%
 
 ### Road crossing density: RdCrsCat in CatRdx
 Rdx.df <- CatRdx %>%
-  dplyr::select(COMID, RdCrsCat)
+  dplyr::select(COMID, RdCrsCat) %>%
+  mutate(rank_RdCrsCat = rank(-RdCrsCat), # ranks in descending order; ranks can tie
+         nrank_RdCrsCat = (rank_RdCrsCat - 1)/ (max(rank_RdCrsCat) - 1)) # rescales ranks btwn 0 and 1
+
+
+
+## join dfs together, add to catch_ca
+catch_ca <- catch_ca %>%
+  # left_join(NLCD.df, by = c("FEATUREID" = "COMID")) %>%
+  left_join(Rdx.df, by = c("FEATUREID" = "COMID")) %>%
+  left_join(Sedrisk.df, by = c("FEATUREID" = "COMID"))
+
+
+## Try some mapping
+library(sf)
+library(viridisLite)
+str(catch_ca)
+
+### map whole state
+# png(here("figures", "PctNatCover.png"), width = 6, height = 5, units = "in", res = 300)
+ggplot() +
+  geom_sf(data = catch_ca, mapping = aes(fill = nrank_PctNatCover), colour = NA) +
+  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("less cover", "more cover"))+
+  labs(fill = NULL) +
+  theme_bw() +
+  ggtitle("Percent natural cover, rank-normalized")
+dev.off()
+
+# png(here("figures", "sedrisk.png"), width = 6, height = 5, units = "in", res = 300)
+ggplot() +
+  geom_sf(data = catch_ca, mapping = aes(fill = nrank_sedrisk), colour = NA) +
+  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more soil loss", "less soil loss"))+
+  labs(fill = NULL) +
+  theme_bw() +
+  ggtitle("Sedimentation risk, rank-normalized")
+dev.off()
+
+# png(here("figures", "sedrisk_rounded.png"), width = 6, height = 5, units = "in", res = 300)
+# ggplot() +
+#   geom_sf(data = catch_ca, mapping = aes(fill = nrank_sedrisk_round), colour = NA) +
+#   scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more soil loss", "less soil loss"))+
+#   labs(fill = NULL) +
+#   theme_bw() +
+#   ggtitle("Sedimentation risk, rounded, rank-normalized")
+# dev.off()
+
+# png(here("figures", "Rdx.png"), width = 6, height = 5, units = "in", res = 300)
+ggplot() +
+  geom_sf(data = catch_ca, mapping = aes(fill = nrank_RdCrsCat), colour = NA) +
+  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more crossings", "fewer crossings"))+
+  labs(fill = NULL) +
+  theme_bw() +
+  ggtitle("Road-stream crossings, rank-normalized")
+dev.off()
+
+
+## try a subset to map
+catch_ca[which.max(catch_ca$s_RdCrsCat),]
+ggplot() + geom_sf(data = catch_ca, mapping = aes(fill = nrank_RdCrsCat), colour = NA) + 
+  coord_sf(xlim = c(-122.2, -122.4),
+           ylim = c(39.9, 40)) +
+  scale_fill_viridis_c() +
+  theme_bw()
+
