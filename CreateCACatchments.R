@@ -11,6 +11,8 @@ library(here)
 library(tidyverse)
 library(sf)
 library(mapview)
+library(tigris)
+library(tmaptools)
 
 here()
 
@@ -20,6 +22,9 @@ nhdplus_path()
 ## run the below once per local machine just to subset the CA catchments. 
 # staged_data <- stage_national_data(output_path = here("UpdatedData"))
 # catch_all <- readRDS(staged_data$catchment)
+# catch_all_sf <- catch_all %>%
+#   as_tibble() %>%
+#   st_as_sf()
 # 
 # rgdal::ogrListLayers(here("UpdatedData", "NHDPlusV21_natseamless" ,"natseamless.gdb"))
 # 
@@ -43,3 +48,13 @@ catchsub <- catch_ca[1:10,]
 class(catch_ca)
 mapview(catchsub)
 # catch_all <- rgdal::readOGR(here("UpdatedData", "NHDPlusV21_natseamless" ,"natseamless.gdb"),"Catchment")
+
+
+## grab CA state polygon from tigris package & crop catch_ca to state boundaries
+## both tigris & natseamless use NAD83 as datum with geographic coordinates
+states_detail <- states(cb = FALSE) # get states
+CA_polygon <- states_detail[states_detail$NAME == "California",] 
+mapview(CA_polygon) # includes coastal waters
+
+# testCrop <- st_crop(catch_ca, CA_polygon) ## bad vertices, indicates bad shapefile?
+# testCrop <- crop_shape(catch_all_sf, CA_polygon)
