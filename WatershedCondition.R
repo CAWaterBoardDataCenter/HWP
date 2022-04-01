@@ -162,7 +162,7 @@ str(catch_ca)
 # png(here("figures", "PctNatCover.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_PctNatCover), colour = NA) +
-  # scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("less cover", "more cover"))+
+  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("less cover", "more cover"))+
   labs(fill = NULL) +
   theme_bw() +
   ggtitle("Percent natural cover, rank-normalized")
