@@ -2,7 +2,7 @@
 #################################
 ## Reading in Watershed Condition files for HWP re-assessment
 ## Started: 17 Aug 2021
-## Edited: 17 Oct 2021
+## Edited: 1 Apr 2022
 #################################
 #################################
 
@@ -26,6 +26,10 @@ Rfact <- read.table(here("UpdatedData" , "RF7100_CONUS.txt"), header = TRUE, sep
   dplyr::filter(COMID %in% COMIDs) ## NHDPlusV2 R factor data
 Kffact <- read_csv("./UpdatedData/Kffact_CA.csv") %>% ## Streamcat Kffact data
   select(COMID, CatAreaSqKm, KffactCat)
+Slope <- read.table(here("UpdatedData" , "BASIN_CHAR_CAT_CONUS.txt"), header = TRUE, sep = ",") %>% 
+  # select(COMID, CAT_RF7100, NODATA) %>%
+  # rename(CAT_RF_NODATA = NODATA) %>%
+  dplyr::filter(COMID %in% COMIDs) ## NHDPlusV2 basin slope
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
   dplyr::select(COMID, RdCrsSlpWtdCat, RdCrsCat) %>%
   mutate(CatSlopePct = round((RdCrsSlpWtdCat/RdCrsCat)*100, 3)) ## calculate percent slope
@@ -56,8 +60,8 @@ str(NLCDcatch)
 NLCD.df <- NLCDcatch[,c(1, 3:12)]
 NLCD.df$PctNatCover <- round(rowSums(NLCD.df[2:11]),2)
 NLCD.df <- select(NLCD.df, COMID, PctNatCover)
-NLCD.df$rank_PctNatCover <- rank(NLCD.df$PctNatCover)
-NLCD.df$nrank_PctNatCover <- (NLCD.df$rank_PctNatCover - 1)/ (max(NLCD.df$rank_PctNatCover) - 1)
+NLCD.df$rank_PctNatCover <- rank(NLCD.df$PctNatCover, na.last = "keep")
+NLCD.df$nrank_PctNatCover <- (NLCD.df$rank_PctNatCover - 1)/ (max(NLCD.df$rank_PctNatCover, na.rm=TRUE) - 1)
 
 ### ARA -- need ArcGIS to complete
 
@@ -99,17 +103,18 @@ sedrisk.C <- NLCDcatch %>%
   mutate(C_total = round(sum(c_across(starts_with("C_")), na.rm=TRUE),3)) %>%
   dplyr::select(COMID, C_total)
  
-## LS: requires mean catchment slope (theta, CatSlopePct) and m (based on mean slope)
+## LS: requires mean catchment slope (theta, CAT_BASIN_SLOPE) and m (based on mean slope)
+# Uses basin slope from NHDPlusV2; could not reconcile back-calculating basin slope correctly from Streamcat's RdCrsSlpWtdCat variable.
 # calculated CatSlopePct for theta; mean catchment slope (issues with NHDPlusV2 vs Streamcat)
-sedrisk.LS <- CatRdx %>%
+sedrisk.LS <- Slope %>%
   mutate(m = case_when(
-    CatSlopePct >= 5 ~ 0.5,
-    CatSlopePct >= 3.5 ~ 0.4,
-    CatSlopePct >= 1 ~ 0.3,
+    CAT_BASIN_SLOPE >= 5 ~ 0.5,
+    CAT_BASIN_SLOPE >= 3.5 ~ 0.4,
+    CAT_BASIN_SLOPE >= 1 ~ 0.3,
     TRUE ~ 0.2
   ),
-  CatSlopePct = replace_na(CatSlopePct, 0),
-  LS = round(1^m * ((65.41*(sin(CatSlopePct)^2))+(4.56*sin(CatSlopePct))+0.065),3))
+  # CatSlopePct = replace_na(CatSlopePct, 0),
+  LS = round(1^m * ((65.41*(sin(CAT_BASIN_SLOPE)^2))+(4.56*sin(CAT_BASIN_SLOPE))+0.065),3))
 
 ## create sedrisk.df
 sedrisk.df <- left_join(sedrisk.R, sedrisk.K, by = "COMID") %>%
@@ -121,11 +126,11 @@ sedrisk.df$sedrisk <- sedrisk.df$CAT_RF7100*sedrisk.df$KffactCat*sedrisk.df$C_to
 head(sedrisk.df)
 Sedrisk.df <- sedrisk.df %>%
   dplyr::select(COMID, sedrisk) %>%
-  mutate(rank_sedrisk = rank(-sedrisk), # ranks in descending order; ranks can tie
-         nrank_sedrisk = (rank_sedrisk - 1)/ (max(rank_sedrisk) - 1),
+  mutate(rank_sedrisk = rank(-sedrisk, na.last = "keep"), # ranks in descending order; ranks can tie
+         nrank_sedrisk = (rank_sedrisk - 1)/ (max(rank_sedrisk, na.rm=TRUE) - 1),
          sedrisk_round = round(sedrisk, 2), # testing whether rounding matters for ranking, answer is not really
-         rank_sedrisk_round = rank(-sedrisk_round),
-         nrank_sedrisk_round = (rank_sedrisk_round - 1)/ (max(rank_sedrisk_round) - 1)) # rescales ranks btwn 0 and 1
+         rank_sedrisk_round = rank(-sedrisk_round, na.last = "keep"),
+         nrank_sedrisk_round = (rank_sedrisk_round - 1)/ (max(rank_sedrisk_round, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
 
 ### Percent artificial drainage area
 
@@ -136,14 +141,14 @@ Sedrisk.df <- sedrisk.df %>%
 ### Road crossing density: RdCrsCat in CatRdx
 Rdx.df <- CatRdx %>%
   dplyr::select(COMID, RdCrsCat) %>%
-  mutate(rank_RdCrsCat = rank(-RdCrsCat), # ranks in descending order; ranks can tie
-         nrank_RdCrsCat = (rank_RdCrsCat - 1)/ (max(rank_RdCrsCat) - 1)) # rescales ranks btwn 0 and 1
+  mutate(rank_RdCrsCat = rank(-RdCrsCat, na.last = "keep"), # ranks in descending order; ranks can tie
+         nrank_RdCrsCat = (rank_RdCrsCat - 1)/ (max(rank_RdCrsCat, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
 
 
 
 ## join dfs together, add to catch_ca
-catch_ca <- catch_ca %>%
-  # left_join(NLCD.df, by = c("FEATUREID" = "COMID")) %>%
+catch_ca_plot <- catch_ca %>%
+  left_join(NLCD.df, by = c("FEATUREID" = "COMID")) %>%
   left_join(Rdx.df, by = c("FEATUREID" = "COMID")) %>%
   left_join(Sedrisk.df, by = c("FEATUREID" = "COMID"))
 
@@ -156,8 +161,8 @@ str(catch_ca)
 ### map whole state
 # png(here("figures", "PctNatCover.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
-  geom_sf(data = catch_ca, mapping = aes(fill = nrank_PctNatCover), colour = NA) +
-  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("less cover", "more cover"))+
+  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_PctNatCover), colour = NA) +
+  # scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("less cover", "more cover"))+
   labs(fill = NULL) +
   theme_bw() +
   ggtitle("Percent natural cover, rank-normalized")
@@ -165,7 +170,7 @@ dev.off()
 
 # png(here("figures", "sedrisk.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
-  geom_sf(data = catch_ca, mapping = aes(fill = nrank_sedrisk), colour = NA) +
+  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_sedrisk), colour = NA) +
   scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more soil loss", "less soil loss"))+
   labs(fill = NULL) +
   theme_bw() +
@@ -183,7 +188,7 @@ dev.off()
 
 # png(here("figures", "Rdx.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
-  geom_sf(data = catch_ca, mapping = aes(fill = nrank_RdCrsCat), colour = NA) +
+  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_RdCrsCat), colour = NA) +
   scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more crossings", "fewer crossings"))+
   labs(fill = NULL) +
   theme_bw() +
