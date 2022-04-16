@@ -2,7 +2,7 @@
 #################################
 ## Reading in Watershed Condition files for HWP re-assessment
 ## Started: 17 Aug 2021
-## Edited: 1 Apr 2022
+## Edited: 15 Apr 2022
 #################################
 #################################
 
@@ -15,8 +15,8 @@ library(here)
 library(scales)
 
 
-## read in files
-catch_ca <- readRDS(here("UpdatedData", "nhdplus_catchment_ca.rds"))
+## read in data files
+catch_ca <- readRDS(here("UpdatedData", "nhdplus_catchment_ca_cropped.rds"))
 NLCDcatch <- read_csv("./UpdatedData/NLCD2016_CA.csv") %>% ## Streamcat NLCD data
   select(COMID, CatAreaSqKm, PctOw2016Cat, PctIce2016Cat, PctBl2016Cat, PctDecid2016Cat, PctConif2016Cat, PctMxFst2016Cat, PctShrb2016Cat, PctGrs2016Cat, PctWdWet2016Cat, PctHbWet2016Cat, PctUrbOp2016Cat, PctUrbLo2016Cat, PctUrbMd2016Cat, PctUrbHi2016Cat, PctHay2016Cat, PctCrop2016Cat)
 COMIDs <- as.vector(NLCDcatch$COMID)
@@ -33,6 +33,9 @@ Slope <- read.table(here("UpdatedData" , "BASIN_CHAR_CAT_CONUS.txt"), header = T
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
   dplyr::select(COMID, RdCrsSlpWtdCat, RdCrsCat) %>%
   mutate(CatSlopePct = round((RdCrsSlpWtdCat/RdCrsCat)*100, 3)) ## calculate percent slope
+
+## read in functions
+source(here("functions", "normalrank.R"))
 
 ## test whether values are similar between Streamcat and NLCD datasets (some are not)
 # NLCD2016test <- read_delim("./UpdatedData/NLCD16_CAT_CONUS.txt", delim = ",") %>%
@@ -59,9 +62,10 @@ str(NLCDcatch)
 ### Percent natural land cover
 NLCD.df <- NLCDcatch[,c(1, 3:12)]
 NLCD.df$PctNatCover <- round(rowSums(NLCD.df[2:11]),2)
-NLCD.df <- select(NLCD.df, COMID, PctNatCover)
-NLCD.df$rank_PctNatCover <- rank(NLCD.df$PctNatCover, na.last = "keep")
-NLCD.df$nrank_PctNatCover <- (NLCD.df$rank_PctNatCover - 1)/ (max(NLCD.df$rank_PctNatCover, na.rm=TRUE) - 1)
+NLCD.df$nrank_PctNatCover <- normalrank(NLCD.df$PctNatCover)
+NLCD.df <- select(NLCD.df, COMID, nrank_PctNatCover)
+# NLCD.df$rank_PctNatCover <- rank(NLCD.df$PctNatCover, na.last = "keep")
+# NLCD.df$nrank_PctNatCover <- (NLCD.df$rank_PctNatCover - 1)/ (max(NLCD.df$rank_PctNatCover, na.rm=TRUE) - 1)
 
 ### ARA -- need ArcGIS to complete
 
@@ -124,13 +128,15 @@ sedrisk.df <- left_join(sedrisk.R, sedrisk.K, by = "COMID") %>%
 ## calculate sedrisk & rank-normalize
 sedrisk.df$sedrisk <- sedrisk.df$CAT_RF7100*sedrisk.df$KffactCat*sedrisk.df$C_total*sedrisk.df$LS
 head(sedrisk.df)
-Sedrisk.df <- sedrisk.df %>%
-  dplyr::select(COMID, sedrisk) %>%
-  mutate(rank_sedrisk = rank(-sedrisk, na.last = "keep"), # ranks in descending order; ranks can tie
-         nrank_sedrisk = (rank_sedrisk - 1)/ (max(rank_sedrisk, na.rm=TRUE) - 1),
-         sedrisk_round = round(sedrisk, 2), # testing whether rounding matters for ranking, answer is not really
-         rank_sedrisk_round = rank(-sedrisk_round, na.last = "keep"),
-         nrank_sedrisk_round = (rank_sedrisk_round - 1)/ (max(rank_sedrisk_round, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
+sedrisk.df$nrank_sedrisk <- normalrank(-sedrisk)
+Sedrisk.df <- select(sedrisk.df, COMID, sedrisk, nrank_sedrisk)
+# Sedrisk.df <- sedrisk.df %>%
+#   dplyr::select(COMID, sedrisk) %>%
+#   mutate(rank_sedrisk = rank(-sedrisk, na.last = "keep"), # ranks in descending order; ranks can tie
+#          nrank_sedrisk = (rank_sedrisk - 1)/ (max(rank_sedrisk, na.rm=TRUE) - 1),
+#          sedrisk_round = round(sedrisk, 2), # testing whether rounding matters for ranking, answer is not really
+#          rank_sedrisk_round = rank(-sedrisk_round, na.last = "keep"),
+#          nrank_sedrisk_round = (rank_sedrisk_round - 1)/ (max(rank_sedrisk_round, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
 
 ### Percent artificial drainage area
 
@@ -139,10 +145,12 @@ Sedrisk.df <- sedrisk.df %>%
 
 
 ### Road crossing density: RdCrsCat in CatRdx
-Rdx.df <- CatRdx %>%
-  dplyr::select(COMID, RdCrsCat) %>%
-  mutate(rank_RdCrsCat = rank(-RdCrsCat, na.last = "keep"), # ranks in descending order; ranks can tie
-         nrank_RdCrsCat = (rank_RdCrsCat - 1)/ (max(rank_RdCrsCat, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
+Rdx.df$nrank_RdCrsCat <- normalrank(-Rdx.df$RdCrsCat)
+Rdx.df <- select(Rdx.df, COMID, RdCrsCat, nrank_RdCrsCat)
+# Rdx.df <- CatRdx %>%
+#   dplyr::select(COMID, RdCrsCat) %>%
+#   mutate(rank_RdCrsCat = rank(-RdCrsCat, na.last = "keep"), # ranks in descending order; ranks can tie
+#          nrank_RdCrsCat = (rank_RdCrsCat - 1)/ (max(rank_RdCrsCat, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
 
 
 
