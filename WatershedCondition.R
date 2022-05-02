@@ -2,7 +2,7 @@
 #################################
 ## Reading in Watershed Condition files for HWP re-assessment
 ## Started: 17 Aug 2021
-## Edited: 15 Apr 2022
+## Edited: 2 May 2022
 #################################
 #################################
 
@@ -20,19 +20,13 @@ catch_ca <- readRDS(here("UpdatedData", "nhdplus_catchment_ca_cropped.rds"))
 NLCDcatch <- read_csv("./UpdatedData/NLCD2016_CA.csv") %>% ## Streamcat NLCD data
   select(COMID, CatAreaSqKm, PctOw2016Cat, PctIce2016Cat, PctBl2016Cat, PctDecid2016Cat, PctConif2016Cat, PctMxFst2016Cat, PctShrb2016Cat, PctGrs2016Cat, PctWdWet2016Cat, PctHbWet2016Cat, PctUrbOp2016Cat, PctUrbLo2016Cat, PctUrbMd2016Cat, PctUrbHi2016Cat, PctHay2016Cat, PctCrop2016Cat)
 COMIDs <- as.vector(NLCDcatch$COMID)
-Rfact <- read.table(here("UpdatedData" , "RF7100_CONUS.txt"), header = TRUE, sep = ",") %>% 
-  select(COMID, CAT_RF7100, NODATA) %>%
-  rename(CAT_RF_NODATA = NODATA) %>%
-  dplyr::filter(COMID %in% COMIDs) ## NHDPlusV2 R factor data
-Kffact <- read_csv("./UpdatedData/Kffact_CA.csv") %>% ## Streamcat Kffact data
-  select(COMID, CatAreaSqKm, KffactCat)
+Soil <- read.table(here("UpdatedData" , "STATSGO_LAYER_CAT_CONUS.txt"), header = TRUE, sep = ",") %>% 
+  select(COMID, CAT_RFACT, CAT_KFACT, NODATA) %>%
+  dplyr::filter(COMID %in% COMIDs) ## NHDPlusV2 STATSGO data
 Slope <- read.table(here("UpdatedData" , "BASIN_CHAR_CAT_CONUS.txt"), header = TRUE, sep = ",") %>% 
-  # select(COMID, CAT_RF7100, NODATA) %>%
-  # rename(CAT_RF_NODATA = NODATA) %>%
   dplyr::filter(COMID %in% COMIDs) ## NHDPlusV2 basin slope
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
-  dplyr::select(COMID, RdCrsSlpWtdCat, RdCrsCat) %>%
-  mutate(CatSlopePct = round((RdCrsSlpWtdCat/RdCrsCat)*100, 3)) ## calculate percent slope
+  dplyr::select(COMID, RdCrsCat)
 
 ## read in functions
 source(here("functions", "normalrank.R"))
@@ -61,11 +55,11 @@ str(NLCDcatch)
 
 ### Percent natural land cover
 NLCD.df <- NLCDcatch[,c(1, 3:12)]
+NLCD.df[!complete.cases(NLCD.df), ] ## has 1 COMID without any land cover data
 NLCD.df$PctNatCover <- round(rowSums(NLCD.df[2:11]),2)
 NLCD.df$nrank_PctNatCover <- normalrank(NLCD.df$PctNatCover)
 NLCD.df <- select(NLCD.df, COMID, nrank_PctNatCover)
-# NLCD.df$rank_PctNatCover <- rank(NLCD.df$PctNatCover, na.last = "keep")
-# NLCD.df$nrank_PctNatCover <- (NLCD.df$rank_PctNatCover - 1)/ (max(NLCD.df$rank_PctNatCover, na.rm=TRUE) - 1)
+NLCD.df[!complete.cases(NLCD.df), ] ## same COMID as above was not ranked
 
 ### ARA -- need ArcGIS to complete
 
@@ -77,13 +71,7 @@ NLCD.df <- select(NLCD.df, COMID, nrank_PctNatCover)
 # colnames(data2013) ## has Kfact and sedrisk, but no Rfact?
 # would like to bring in Rfactor from NHDPlusV2 data but given discrepancies I've found between the NHDPlusV2 and StreamCat datasets I'm wary.
 
-## R: CAT_RF7100 in Rfact
-sedrisk.R <- Rfact %>%
-  dplyr::select(COMID, CAT_RF7100)
-
-## K: KffactCat in Streamcat
-sedrisk.K <- Kffact %>%
-  dplyr::select(COMID, KffactCat)
+## R & K factors: in NHDPlusV2 STATSGO table; "Soil" here
 
 ## C: CatAreaSqKm in Streamcat; Multiple colnames in Streamcat from NLCD2016_CA; re-create land cover factor values
 sedrisk.C <- NLCDcatch %>%
@@ -110,6 +98,7 @@ sedrisk.C <- NLCDcatch %>%
 ## LS: requires mean catchment slope (theta, CAT_BASIN_SLOPE) and m (based on mean slope)
 # Uses basin slope from NHDPlusV2; could not reconcile back-calculating basin slope correctly from Streamcat's RdCrsSlpWtdCat variable.
 # calculated CatSlopePct for theta; mean catchment slope (issues with NHDPlusV2 vs Streamcat)
+range(Slope$CAT_BASIN_SLOPE) ## no NA or no data values
 sedrisk.LS <- Slope %>%
   mutate(m = case_when(
     CAT_BASIN_SLOPE >= 5 ~ 0.5,
@@ -117,26 +106,22 @@ sedrisk.LS <- Slope %>%
     CAT_BASIN_SLOPE >= 1 ~ 0.3,
     TRUE ~ 0.2
   ),
-  # CatSlopePct = replace_na(CatSlopePct, 0),
-  LS = round(1^m * ((65.41*(sin(CAT_BASIN_SLOPE)^2))+(4.56*sin(CAT_BASIN_SLOPE))+0.065),3))
+  LS = round(1^m * ((65.41*(sin(CAT_BASIN_SLOPE)^2))+(4.56*sin(CAT_BASIN_SLOPE))+0.065),3)) %>%
+  dplyr::select(COMID, CAT_BASIN_SLOPE, m, LS)
 
 ## create sedrisk.df
-sedrisk.df <- left_join(sedrisk.R, sedrisk.K, by = "COMID") %>%
+# sedrisk.df <- left_join(sedrisk.R, sedrisk.K, by = "COMID") %>%
+sedrisk.df <- dplyr::select(Soil, COMID, CAT_RFACT, CAT_KFACT) %>%
   left_join(., sedrisk.LS, by = "COMID") %>%
   left_join(., sedrisk.C, by = "COMID")
 
 ## calculate sedrisk & rank-normalize
-sedrisk.df$sedrisk <- sedrisk.df$CAT_RF7100*sedrisk.df$KffactCat*sedrisk.df$C_total*sedrisk.df$LS
+# sedrisk.df$sedrisk <- sedrisk.df$CAT_RF7100*sedrisk.df$KffactCat*sedrisk.df$C_total*sedrisk.df$LS
+sedrisk.df$sedrisk <- sedrisk.df$CAT_RFACT*sedrisk.df$CAT_KFACT*sedrisk.df$C_total*sedrisk.df$LS
 head(sedrisk.df)
-sedrisk.df$nrank_sedrisk <- normalrank(-sedrisk)
+sedrisk.df$nrank_sedrisk <- normalrank(-sedrisk.df$sedrisk)
 Sedrisk.df <- select(sedrisk.df, COMID, sedrisk, nrank_sedrisk)
-# Sedrisk.df <- sedrisk.df %>%
-#   dplyr::select(COMID, sedrisk) %>%
-#   mutate(rank_sedrisk = rank(-sedrisk, na.last = "keep"), # ranks in descending order; ranks can tie
-#          nrank_sedrisk = (rank_sedrisk - 1)/ (max(rank_sedrisk, na.rm=TRUE) - 1),
-#          sedrisk_round = round(sedrisk, 2), # testing whether rounding matters for ranking, answer is not really
-#          rank_sedrisk_round = rank(-sedrisk_round, na.last = "keep"),
-#          nrank_sedrisk_round = (rank_sedrisk_round - 1)/ (max(rank_sedrisk_round, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
+
 
 ### Percent artificial drainage area
 
@@ -145,12 +130,9 @@ Sedrisk.df <- select(sedrisk.df, COMID, sedrisk, nrank_sedrisk)
 
 
 ### Road crossing density: RdCrsCat in CatRdx
+Rdx.df <- CatRdx
 Rdx.df$nrank_RdCrsCat <- normalrank(-Rdx.df$RdCrsCat)
 Rdx.df <- select(Rdx.df, COMID, RdCrsCat, nrank_RdCrsCat)
-# Rdx.df <- CatRdx %>%
-#   dplyr::select(COMID, RdCrsCat) %>%
-#   mutate(rank_RdCrsCat = rank(-RdCrsCat, na.last = "keep"), # ranks in descending order; ranks can tie
-#          nrank_RdCrsCat = (rank_RdCrsCat - 1)/ (max(rank_RdCrsCat, na.rm=TRUE) - 1)) # rescales ranks btwn 0 and 1
 
 
 
@@ -185,14 +167,6 @@ ggplot() +
   ggtitle("Sedimentation risk, rank-normalized")
 dev.off()
 
-# png(here("figures", "sedrisk_rounded.png"), width = 6, height = 5, units = "in", res = 300)
-# ggplot() +
-#   geom_sf(data = catch_ca, mapping = aes(fill = nrank_sedrisk_round), colour = NA) +
-#   scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more soil loss", "less soil loss"))+
-#   labs(fill = NULL) +
-#   theme_bw() +
-#   ggtitle("Sedimentation risk, rounded, rank-normalized")
-# dev.off()
 
 # png(here("figures", "Rdx.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
@@ -211,4 +185,3 @@ ggplot() + geom_sf(data = catch_ca, mapping = aes(fill = nrank_RdCrsCat), colour
            ylim = c(39.9, 40)) +
   scale_fill_viridis_c() +
   theme_bw()
-
