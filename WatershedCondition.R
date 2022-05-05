@@ -2,7 +2,7 @@
 # Watershed Condition.R ----
 ## Started: 17 Aug 2021
 ## Edited: 5 May 2022
-
+## Developed by: Corey Clatterbuck
 
 
 ##  read in libraries ----
@@ -36,8 +36,10 @@ AgTilesNakagaki <- read.table(here("UpdatedData" , "TILES_Nakagaki_CONUS.txt"),
                               header = TRUE, sep = ",") %>%
   dplyr::filter(COMID %in% COMIDs)
 Dams <- read_csv(here("UpdatedData", "Dams_CA.csv"))
-Streamflow <- read.dbf(here("UpdatedData", "NHDPlusCA", "NHDPlus18", "EROMExtension", "EROM_MA0001.DBF")) %>%
+Streamflow <- read.csv(here("UpdatedData", "CA_EROM_compiled.csv")) %>%
   dplyr::filter(ComID %in% COMIDs) ## need to determine where missing ComIDs are
+# Streamflow <- read.dbf(here("UpdatedData", "NHDPlusCA", "NHDPlus18", "EROMExtension", "EROM_MA0001.DBF")) %>%
+#   dplyr::filter(ComID %in% COMIDs) ## CA VPU 18 only, created DSRatio..._pre figures
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
   dplyr::select(COMID, RdCrsCat)
 
@@ -176,7 +178,9 @@ which(is.na(Dams$DamNrmStorWs)) # none
 which(is.na(Streamflow$V0001C)) # none
 
 sub3 <- dplyr::filter(Dams, DamNIDStorCat > 0) ## ~25 dams in CA that do not store water
+NoNrmStorageCat <- anti_join(sub3, sub1, by = "COMID") ## COMIDs with potential storage according to NID but no normal (average) storage
 sub4 <- dplyr::filter(Dams, DamNIDStorWs > 0) ## ~180 downstream segments could have water
+NoNrmStorageWs <- anti_join(sub4, sub2, by = "COMID") ## COMIDs with potential storage in watershed according to NID but no normal (average) storage
 ## I think using normal storage is fine
 
 
@@ -274,7 +278,7 @@ ggplot() +
   ggtitle("% artificial drainage area (1990s), rank-normalized")
 dev.off()
 
-# png(here("figures", "DSRatioCat_pre.png"), width = 6, height = 5, units = "in", res = 300)
+# png(here("figures", "DSRatioCat_post.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_DSRatioCat), colour = NA) +
   scale_fill_binned(breaks = breaks,
@@ -291,7 +295,7 @@ ggplot() +
   ggtitle("Dam Storage Ratio (Cat), rank-normalized")
 dev.off()
 
-# png(here("figures", "DSRatioWs_pre.png"), width = 6, height = 5, units = "in", res = 300)
+# png(here("figures", "DSRatioWs_post.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_DSRatioWs), colour = NA) +
   scale_fill_binned(breaks = breaks,
