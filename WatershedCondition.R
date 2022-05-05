@@ -1,7 +1,7 @@
 
 # Watershed Condition.R ----
 ## Started: 17 Aug 2021
-## Edited: 2 May 2022
+## Edited: 5 May 2022
 
 
 
@@ -11,6 +11,7 @@ library(tidyverse)
 library(nhdplusTools) ## requires download first using devtools::install_github("usgs-r/nhdplusTools")
 library(here)
 library(scales)
+library(foreign)
 
 
 ## read in data files ----
@@ -34,6 +35,9 @@ AgTiles92 <- read.table(here("UpdatedData" , "TILES92_CONUS.txt"),
 AgTilesNakagaki <- read.table(here("UpdatedData" , "TILES_Nakagaki_CONUS.txt"), 
                               header = TRUE, sep = ",") %>%
   dplyr::filter(COMID %in% COMIDs)
+Dams <- read_csv(here("UpdatedData", "Dams_CA.csv"))
+Streamflow <- read.dbf(here("UpdatedData", "NHDPlusCA", "NHDPlus18", "EROMExtension", "EROM_MA0001.DBF")) %>%
+  dplyr::filter(ComID %in% COMIDs) ## need to determine where missing ComIDs are
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
   dplyr::select(COMID, RdCrsCat)
 
@@ -162,6 +166,48 @@ Ag.df <- dplyr::select(AgCombo, COMID, nrank_Drainage92, nrank_Drainage90s)
 
 ### Dam storage ratio ----
 
+#### explore data 
+hist(Dams$DamNrmStorCat)
+hist(Dams$DamNrmStorWs)
+sub1 <- dplyr::filter(Dams, DamNrmStorCat > 0) ## 1272 obs
+sub2 <- dplyr::filter(Dams, DamNrmStorWs > 0) ## 19267 obs...interesting, makes sense
+which(is.na(Dams$DamNrmStorCat)) # none
+which(is.na(Dams$DamNrmStorWs)) # none
+which(is.na(Streamflow$V0001C)) # none
+
+sub3 <- dplyr::filter(Dams, DamNIDStorCat > 0) ## ~25 dams in CA that do not store water
+sub4 <- dplyr::filter(Dams, DamNIDStorWs > 0) ## ~180 downstream segments could have water
+## I think using normal storage is fine
+
+
+#### calculate storage in cat & ws 
+StorageCombo <- Dams %>%
+  mutate(StorageCatCM = DamNrmStorCat / CatAreaSqKm, # cubic meters
+         StorageCatCF = StorageCatCM*35.3147, # cubic feet
+         StorageCatAF = StorageCatCF / 43560, # acre feet
+         StorageWsCM = DamNrmStorWs / WsAreaSqKm, # cubic meters, watershed
+         StorageWsCF = StorageWsCM*35.3147, # cubic feet, watershed
+         StorageWsAF = StorageWsCF / 43560) %>% # acre feet, watershed
+  dplyr::select(COMID, CatAreaSqKm, DamNrmStorCat, StorageCatCM, StorageCatCF, StorageCatAF, WsAreaSqKm, DamNrmStorWs, StorageWsCM, StorageWsCF, StorageWsAF)
+
+
+#### calculate flow in acft/yr 
+FlowCombo <- Streamflow %>%
+  dplyr::select(ComID, Q0001A) %>%
+  dplyr::rename(COMID = ComID,
+                MeanFlow_cfs = Q0001A) %>%
+  dplyr::mutate(Flow_AFyear = MeanFlow_cfs * 723.96695) ## convert cfs to acre-feet/yr
+
+#### join combo frames & calculate ratio 
+RatioCombo <- left_join(StorageCombo, FlowCombo, by = "COMID") %>%
+  dplyr::mutate(DSRatioCat = StorageCatAF / Flow_AFyear,
+                DSRatioWs = StorageWsAF / Flow_AFyear)
+
+#### rank-normalize and create .df 
+DSRatio.df <- RatioCombo %>%
+  dplyr::mutate(nrank_DSRatioCat = normalrank(-DSRatioCat),
+                nrank_DSRatioWs = normalrank(-DSRatioWs)) %>%
+  dplyr::select(COMID, DSRatioCat, nrank_DSRatioCat, DSRatioWs, nrank_DSRatioWs)
 
 ### Road crossing density: RdCrsCat in CatRdx ----
 Rdx.df <- CatRdx
@@ -175,7 +221,8 @@ catch_ca_plot <- catch_ca %>%
   left_join(NLCD.df, by = c("FEATUREID" = "COMID")) %>%
   left_join(Rdx.df, by = c("FEATUREID" = "COMID")) %>%
   left_join(Sedrisk.df, by = c("FEATUREID" = "COMID")) %>%
-  left_join(Ag.df, by = c("FEATUREID" = "COMID"))
+  left_join(Ag.df, by = c("FEATUREID" = "COMID")) %>%
+  left_join(DSRatio.df, by = c("FEATUREID" = "COMID"))
 
 
 ## Try some mapping ----
@@ -225,6 +272,40 @@ ggplot() +
   theme(legend.position = c(0.25, 0.08),
         legend.direction = "horizontal") +
   ggtitle("% artificial drainage area (1990s), rank-normalized")
+dev.off()
+
+# png(here("figures", "DSRatioCat_pre.png"), width = 6, height = 5, units = "in", res = 300)
+ggplot() +
+  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_DSRatioCat), colour = NA) +
+  scale_fill_binned(breaks = breaks,
+                    labels = NULL,
+                    direction = -1,
+                    type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
+  theme_bw() +
+  # theme(legend.position = c(0.25, 0.08),
+  #       legend.direction = "horizontal") +
+  theme(legend.position = c(0.7, 0.95),
+        legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
+  ggtitle("Dam Storage Ratio (Cat), rank-normalized")
+dev.off()
+
+# png(here("figures", "DSRatioWs_pre.png"), width = 6, height = 5, units = "in", res = 300)
+ggplot() +
+  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_DSRatioWs), colour = NA) +
+  scale_fill_binned(breaks = breaks,
+                    labels = NULL,
+                    direction = -1,
+                    type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
+  theme_bw() +
+  # theme(legend.position = c(0.25, 0.08),
+  #       legend.direction = "horizontal") +
+  theme(legend.position = c(0.7, 0.95),
+        legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
+  ggtitle("Dam Storage Ratio (Ws), rank-normalized")
 dev.off()
 
 
