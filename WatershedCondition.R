@@ -184,15 +184,31 @@ NoNrmStorageWs <- anti_join(sub4, sub2, by = "COMID") ## COMIDs with potential s
 ## I think using normal storage is fine
 
 
-#### calculate storage in cat & ws 
+#### calculate storage in cat & ws
+
+##### replace DamNrm with DamNID where DamNrm == 0 & DamNID > 0 & calculate
 StorageCombo <- Dams %>%
-  mutate(StorageCatCM = DamNrmStorCat / CatAreaSqKm, # cubic meters
+  mutate(DamNrmStorCat2 = case_when(DamNrmStorCat == 0 & DamNIDStorCat > 0 ~ DamNIDStorCat,
+                          TRUE ~ DamNrmStorCat),
+         DamNrmStorWs2 = case_when(DamNrmStorWs == 0 & DamNIDStorWs > 0 ~ DamNIDStorWs,
+                                    TRUE ~ DamNrmStorWs),
+         StorageCatCM = DamNrmStorCat2 / CatAreaSqKm, # cubic meters
          StorageCatCF = StorageCatCM*35.3147, # cubic feet
          StorageCatAF = StorageCatCF / 43560, # acre feet
-         StorageWsCM = DamNrmStorWs / WsAreaSqKm, # cubic meters, watershed
+         StorageWsCM = DamNrmStorWs2 / WsAreaSqKm, # cubic meters, watershed
          StorageWsCF = StorageWsCM*35.3147, # cubic feet, watershed
          StorageWsAF = StorageWsCF / 43560) %>% # acre feet, watershed
-  dplyr::select(COMID, CatAreaSqKm, DamNrmStorCat, StorageCatCM, StorageCatCF, StorageCatAF, WsAreaSqKm, DamNrmStorWs, StorageWsCM, StorageWsCF, StorageWsAF)
+  dplyr::select(COMID, CatAreaSqKm, DamNrmStorCat2, StorageCatCM, StorageCatCF, StorageCatAF, WsAreaSqKm, DamNrmStorWs2, StorageWsCM, StorageWsCF, StorageWsAF)
+
+##### without replacing DamNrm with DamNID where DamNrm == 0 & DamNID > 0
+# StorageCombo <- Dams %>%
+#   mutate(StorageCatCM = DamNrmStorCat / CatAreaSqKm, # cubic meters
+#          StorageCatCF = StorageCatCM*35.3147, # cubic feet
+#          StorageCatAF = StorageCatCF / 43560, # acre feet
+#          StorageWsCM = DamNrmStorWs / WsAreaSqKm, # cubic meters, watershed
+#          StorageWsCF = StorageWsCM*35.3147, # cubic feet, watershed
+#          StorageWsAF = StorageWsCF / 43560) %>% # acre feet, watershed
+#   dplyr::select(COMID, CatAreaSqKm, DamNrmStorCat, StorageCatCM, StorageCatCF, StorageCatAF, WsAreaSqKm, DamNrmStorWs, StorageWsCM, StorageWsCF, StorageWsAF)
 
 
 #### calculate flow in acft/yr 
@@ -207,11 +223,15 @@ RatioCombo <- left_join(StorageCombo, FlowCombo, by = "COMID") %>%
   dplyr::mutate(DSRatioCat = StorageCatAF / Flow_AFyear,
                 DSRatioWs = StorageWsAF / Flow_AFyear)
 
+#### which COMIDs did not have mean flows available?
+test3 <- dplyr::filter(RatioCombo, is.na(MeanFlow_cfs)) ## 216 obs
+
 #### rank-normalize and create .df 
 DSRatio.df <- RatioCombo %>%
   dplyr::mutate(nrank_DSRatioCat = normalrank(-DSRatioCat),
                 nrank_DSRatioWs = normalrank(-DSRatioWs)) %>%
   dplyr::select(COMID, DSRatioCat, nrank_DSRatioCat, DSRatioWs, nrank_DSRatioWs)
+
 
 ### Road crossing density: RdCrsCat in CatRdx ----
 Rdx.df <- CatRdx
@@ -236,61 +256,61 @@ str(catch_ca)
 
 ### set figure parameters ----
 breaks <- seq(0,1,.1)
+# theme(legend.position = c(0.25, 0.08),
+#       legend.direction = "horizontal") ## legend position in lower left
 
 ### map whole state ----
 # png(here("figures", "PctNatCover.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_PctNatCover), colour = NA) +
-  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("less cover", "more cover"))+
-  labs(fill = NULL) +
+  scale_fill_binned(breaks = breaks, labels = NULL, direction = -1, type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("Percent natural cover, rank-normalized")
 dev.off()
 
 # png(here("figures", "sedrisk.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_sedrisk), colour = NA) +
-  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more soil loss", "less soil loss"))+
-  labs(fill = NULL) +
+  scale_fill_binned(breaks = breaks, labels = NULL, type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("Sedimentation risk, rank-normalized")
 dev.off()
 
 # png(here("figures", "ArtificialDrainage92.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_Drainage92), colour = NA) +
-  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more area", "less area"))+
-  labs(fill = NULL) +
+  scale_fill_binned(breaks = breaks, labels = NULL, type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
-  theme(legend.position = c(0.25, 0.08),
-        legend.direction = "horizontal") +
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("% artificial drainage area (1992), rank-normalized")
 dev.off()
 
 # png(here("figures", "ArtificialDrainage90s.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_Drainage90s), colour = NA) +
-  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more area", "less area"))+
-  labs(fill = NULL) +
+  scale_fill_binned(breaks = breaks, labels = NULL, direction = -1, type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
-  theme(legend.position = c(0.25, 0.08),
-        legend.direction = "horizontal") +
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("% artificial drainage area (1990s), rank-normalized")
 dev.off()
 
 # png(here("figures", "DSRatioCat_post.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_DSRatioCat), colour = NA) +
-  scale_fill_binned(breaks = breaks,
-                    labels = NULL,
-                    direction = -1,
-                    type = "viridis") +
+  scale_fill_binned(breaks = breaks, labels = NULL, direction = -1, type = "viridis") +
   labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
-  # theme(legend.position = c(0.25, 0.08),
-  #       legend.direction = "horizontal") +
-  theme(legend.position = c(0.7, 0.95),
-        legend.direction = "horizontal",
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
         legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("Dam Storage Ratio (Cat), rank-normalized")
 dev.off()
@@ -298,16 +318,10 @@ dev.off()
 # png(here("figures", "DSRatioWs_post.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_DSRatioWs), colour = NA) +
-  scale_fill_binned(breaks = breaks,
-                    labels = NULL,
-                    direction = -1,
-                    type = "viridis") +
+  scale_fill_binned(breaks = breaks, labels = NULL, direction = -1, type = "viridis") +
   labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
-  # theme(legend.position = c(0.25, 0.08),
-  #       legend.direction = "horizontal") +
-  theme(legend.position = c(0.7, 0.95),
-        legend.direction = "horizontal",
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
         legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("Dam Storage Ratio (Ws), rank-normalized")
 dev.off()
@@ -316,9 +330,11 @@ dev.off()
 # png(here("figures", "Rdx.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
   geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_RdCrsCat), colour = NA) +
-  scale_fill_viridis_c(breaks = c(0.01, 1), labels = c("more crossings", "fewer crossings"))+
-  labs(fill = NULL) +
+  scale_fill_binned(breaks = breaks, labels = NULL, direction = -1, type = "viridis") +
+  labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
+  theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
+        legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
   ggtitle("Road-stream crossings, rank-normalized")
 dev.off()
 
