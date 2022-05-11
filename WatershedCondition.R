@@ -1,7 +1,7 @@
 
 # Watershed Condition.R ----
 ## Started: 17 Aug 2021
-## Edited: 10 May 2022
+## Edited: 5 May 2022
 ## Developed by: Corey Clatterbuck
 
 
@@ -41,7 +41,7 @@ Streamflow <- read.csv(here("UpdatedData", "CA_EROM_compiled.csv")) %>%
 # Streamflow <- read.dbf(here("UpdatedData", "NHDPlusCA", "NHDPlus18", "EROMExtension", "EROM_MA0001.DBF")) %>%
 #   dplyr::filter(ComID %in% COMIDs) ## CA VPU 18 only, created DSRatio..._pre figures
 CatRdx <- read_csv("./UpdatedData/RoadStreamCrossings_CA.csv") %>% ## Streamcat Road Crossings data
-  dplyr::select(COMID, CatAreaSqKm, RdCrsCat)
+  dplyr::select(COMID, RdCrsCat)
 
 ## read in functions ----
 source(here("functions", "normalrank.R"))
@@ -234,10 +234,9 @@ DSRatio.df <- RatioCombo %>%
 
 
 ### Road crossing density: RdCrsCat in CatRdx ----
-Rdx.df <- CatRdx %>%
-  dplyr::mutate(RdCrsDens = RdCrsCat/CatAreaSqKm,
-                nrank_RdCrsDens = normalrank(-RdCrsCat)) %>%
-  dplyr::select(COMID, RdCrsDens, nrank_RdCrsDens)
+Rdx.df <- CatRdx
+Rdx.df$nrank_RdCrsCat <- normalrank(-Rdx.df$RdCrsCat)
+Rdx.df <- select(Rdx.df, COMID, RdCrsCat, nrank_RdCrsCat)
 
 
 
@@ -328,15 +327,15 @@ ggplot() +
 dev.off()
 
 
-png(here("figures", "Rdx.png"), width = 6, height = 5, units = "in", res = 300)
+# png(here("figures", "Rdx.png"), width = 6, height = 5, units = "in", res = 300)
 ggplot() +
-  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_RdCrsDens), colour = NA) +
+  geom_sf(data = catch_ca_plot, mapping = aes(fill = nrank_RdCrsCat), colour = NA) +
   scale_fill_binned(breaks = breaks, labels = NULL, direction = -1, type = "viridis") +
   labs(fill = NULL, x = NULL, y = NULL) +
   theme_bw() +
   theme(legend.position = c(0.7, 0.95), legend.direction = "horizontal",
         legend.margin=margin(t=0, r=0, b=-0.2, l=0, unit="in")) +
-  ggtitle("Road crossing density, rank-normalized")
+  ggtitle("Road-stream crossings, rank-normalized")
 dev.off()
 
 
